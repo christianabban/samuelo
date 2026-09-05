@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Add your photos</title>
+  <link rel="stylesheet" href="/css/main.css" />
+  <script src="/config.js"></script>
+</head>
+<body>
+  <div class="upload-shell">
+
+    <div class="upload-header">
+      <div class="date" id="dateLine"></div>
+      <h1 id="headline">Add your photos</h1>
+      <p>Photos and videos you add here go straight into the shared album.</p>
+    </div>
+
+    <div class="upload-body">
+
+      <div id="banner"></div>
+
+      <div id="formView">
+        <div class="capture-options">
+          <button type="button" class="capture-btn" id="cameraBtn">
+            <span class="capture-icon">📷</span>
+            <span>Take a photo or video</span>
+          </button>
+          <button type="button" class="capture-btn" id="libraryBtn">
+            <span class="capture-icon">🖼️</span>
+            <span>Choose from library</span>
+          </button>
+        </div>
+
+        <!-- Camera input: capture only, one at a time — this is what makes
+             phones open the camera app directly instead of a file picker. -->
+        <input type="file" id="cameraInput" accept="image/*,video/*" capture="environment" />
+
+        <!-- Library input: multiple, no capture attribute — mixing "capture"
+             with "multiple" on one input is unreliable across phones, which
+             is why this is a separate input from the camera one above. -->
+        <input type="file" id="libraryInput" accept="image/*,video/*" multiple />
+
+        <div class="preview-grid" id="previewGrid"></div>
+
+        <div class="upload-actions">
+          <button class="btn btn-primary" id="submitBtn" disabled>Upload</button>
+        </div>
+      </div>
+
+      <div id="successView" class="success-screen" style="display:none;">
+        <div class="check">✓</div>
+        <h2>Added to the album</h2>
+        <p>Thank you — we can't wait to see this.</p>
+        <div class="btn-row">
+          <button class="btn btn-secondary" id="addMoreBtn">Add more</button>
+          <a class="btn btn-primary" href="/gallery.html">View the album</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    const cfg = window.KEPT_CONFIG;
+    document.documentElement.style.setProperty('--accent', cfg.accentColor);
+    document.getElementById('headline').textContent = `Add your photos for ${cfg.coupleNames}`;
+
+    const d = new Date(cfg.weddingDate + 'T00:00:00');
+    document.getElementById('dateLine').textContent = d.toLocaleDateString(undefined, {
+      weekday: 'long', month: 'long', day: 'numeric'
+    });
+
+    const params = new URLSearchParams(window.location.search);
+    const albumId = params.get('album') || cfg.albumId;
+
+    const cameraInput = document.getElementById('cameraInput');
+    const libraryInput = document.getElementById('libraryInput');
+    const previewGrid = document.getElementById('previewGrid');
+    const submitBtn = document.getElementById('submitBtn');
+    const banner = document.getElementById('banner');
+    const formView = document.getElementById('formView');
+    const successView = document.getElementById('successView');
+
+    let selectedFiles = [];
+
+    document.getElementById('cameraBtn').addEventListener('click', () => cameraInput.click());
+    document.getElementById('libraryBtn').addEventListener('click', () => libraryInput.click());
+
+    cameraInput.addEventListener('change', (e) => addFiles(e.target.files));
+    libraryInput.addEventListener('change', (e) => addFiles(e.target.files));
+
+    function addFiles(fileList) {
+      for (const file of fileList) selectedFiles.push(file);
+      renderPreviews();
+      // Reset so choosing the same file again (e.g. another camera shot)
+      // still fires a change event.
+      cameraInput.value = '';
+      libraryInput.value = '';
+    }
+
+    function renderPreviews() {
+      previewGrid.innerHTML = '';
+      selectedFiles.forEach((file, i) => {
+        const thumb = document.createElement('div');
+        thumb.className = 'thumb';
+        const url = URL.createObjectURL(file);
+        const el = file.type.startsWith('video') ? document.createElement('video') : document.createElement('img');
+        el.src = url;
+        if (el.tagName === 'VIDEO') el.muted = true;
+        thumb.appendChild(el);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.textContent = '×';
+        removeBtn.addEventListener('click', () => {
+          selectedFiles.splice(i, 1);
+          renderPreviews();
+        });
+        thumb.appendChild(removeBtn);
+        previewGrid.appendChild(thumb);
+      });
+      submitBtn.disabled = selectedFiles.length === 0;
+    }
+
+    document.getElementById('submitBtn').addEventListener('click', async () => {
+      if (selectedFiles.length === 0) return;
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Uploading…';
+      showBanner('progress', `Uploading ${selectedFiles.length} item(s)…`);
+
+      const formData = new FormData();
+      formData.append('albumId', albumId);
+      selectedFiles.forEach(file => formData.append('media', file));
+
+      try {
+        const res = await fetch('/.netlify/functions/upload', {
+          method: 'POST',
+          body: formData
+        });
+        if (!res.ok) throw new Error('Upload failed');
+
+        formView.style.display = 'none';
+        successView.style.display = 'block';
+        banner.innerHTML = '';
+      } catch (err) {
+        showBanner('error', "That didn't go through — check your connection and try again.");
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Upload';
+      }
+    });
+
+    document.getElementById('addMoreBtn').addEventListener('click', () => {
+      selectedFiles = [];
+      renderPreviews();
+      formView.style.display = 'block';
+      successView.style.display = 'none';
+      submitBtn.textContent = 'Upload';
+    });
+
+    function showBanner(kind, message) {
+      banner.innerHTML = `<div class="status-banner ${kind}">${message}</div>`;
+    }
+  </script>
+</body>
+</html>
