@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Add your photos</title>
+  <link rel="stylesheet" href="/css/main.css" />
+  <script src="/config.js"></script>
+</head>
+<body>
+  <div class="upload-shell">
+
+    <div class="upload-header">
+      <div class="date" id="dateLine"></div>
+      <h1 id="headline">Add your photos</h1>
+      <p>Photos and videos you add here go straight into the shared album.</p>
+    </div>
+
+    <div class="upload-body">
+
+      <div id="banner"></div>
+
+      <div id="formView">
+        <div class="capture-options">
+          <button type="button" class="capture-btn" id="photoBtn">
+            <span class="capture-icon">📷</span>
+            <span>Take photo</span>
+          </button>
+          <button type="button" class="capture-btn" id="videoBtn">
+            <span class="capture-icon">🎥</span>
+            <span>Record video</span>
+          </button>
+          <button type="button" class="capture-btn" id="libraryBtn">
+            <span class="capture-icon">🖼️</span>
+            <span>Choose from library</span>
+          </button>
+        </div>
+
+        <!-- Capture inputs stay separate so phones can open the matching
+             native camera mode directly. -->
+        <input type="file" id="photoInput" accept="image/*" capture="environment" />
+        <input type="file" id="videoInput" accept="video/*" capture="environment" />
+
+        <!-- Library input: multiple, no capture attribute — mixing "capture"
+             with "multiple" on one input is unreliable across phones, which
+             is why this is separate from the capture inputs above. -->
+        <input type="file" id="libraryInput" accept="image/*,video/*" multiple />
+
+        <div class="preview-grid" id="previewGrid"></div>
+
+        <div class="upload-actions">
+          <button class="btn btn-primary" id="submitBtn" disabled>Upload</button>
+        </div>
+      </div>
+
+      <div id="successView" class="success-screen" style="display:none;">
+        <div class="check">✓</div>
+        <h2>Added to the album</h2>
+        <p>Thank you — we can't wait to see this.</p>
+        <div class="btn-row">
+          <button class="btn btn-secondary" id="addMoreBtn">Add more</button>
+          <a class="btn btn-primary" href="/gallery.html">View the album</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+
+  <script>
+    const cfg = window.KEPT_CONFIG;
+    document.documentElement.style.setProperty('--accent', cfg.accentColor);
+    document.getElementById('headline').textContent = `Add your photos for ${cfg.coupleNames}`;
+
+    const d = new Date(cfg.weddingDate + 'T00:00:00');
+    document.getElementById('dateLine').textContent = d.toLocaleDateString(undefined, {
+      weekday: 'long', month: 'long', day: 'numeric'
+    });
+
+    const params = new URLSearchParams(window.location.search);
+    const albumId = params.get('album') || cfg.albumId;
+
+    const photoInput = document.getElementById('photoInput');
+    const videoInput = document.getElementById('videoInput');
+    const libraryInput = document.getElementById('libraryInput');
+    const previewGrid = document.getElementById('previewGrid');
+    const submitBtn = document.getElementById('submitBtn');
+    const banner = document.getElementById('banner');
+    const formView = document.getElementById('formView');
+    const successView = document.getElementById('successView');
+
+    const CHUNK_SIZE = 3 * 1024 * 1024;
+    const MAX_FILE_SIZE = 50 * 1024 * 1024;
+    const MAX_RETRIES = 2;
+    let selectedFiles = [];
+
+    document.getElementById('photoBtn').addEventListener('click', () => photoInput.click());
+    document.getElementById('videoBtn').addEventListener('click', () => videoInput.click());
+    document.getElementById('libraryBtn').addEventListener('click', () => libraryInput.click());
+    photoInput.addEventListener('change', e => addFiles(e.target.files));
+    videoInput.addEventListener('change', e => addFiles(e.target.files));
+    libraryInput.addEventListener('change', e => addFiles(e.target.files));
+
+    function addFiles(fileList) {
+      for (const file of fileList) {
+        if (file.size > MAX_FILE_SIZE) {
+          showBanner('error', `${file.name} is too large. Please keep each photo or video under 50 MB.`);
+          continue;
+        }
+        selectedFiles.push(file);
+      }
+      renderPreviews();
+      photoInput.value = '';
+      videoInput.value = '';
+      libraryInput.value = '';
+    }
+
+    function renderPreviews() {
+      previewGrid.innerHTML = '';
+      selectedFiles.forEach((file, i) => {
+        const thumb = document.createElement('div');
+        thumb.className = 'thumb';
+        const url = URL.createObjectURL(file);
+        const el = file.type.startsWith('video') ? document.createElement('video') : document.createElement('img');
+        el.src = url;
+        if (el.tagName === 'VIDEO') { el.muted = true; el.playsInline = true; }
+        thumb.appendChild(el);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.textContent = '×';
+        removeBtn.addEventListener('click', () => {
+          selectedFiles.splice(i, 1);
+          renderPreviews();
+        });
+        thumb.appendChild(removeBtn);
+        previewGrid.appendChild(thumb);
+      });
+      submitBtn.disabled = selectedFiles.length === 0;
+    }
+
+    document.getElementById('submitBtn').addEventListener('click', async () => {
+      if (!selectedFiles.length) return;
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Uploading…';
+
+      try {
+        for (let i = 0; i < selectedFiles.length; i++) {
+          showBanner('progress', `Uploading ${i + 1} of ${selectedFiles.length}: ${selectedFiles[i].name}`);
+          await uploadFileInChunks(selectedFiles[i]);
+        }
+        formView.style.display = 'none';
+        successView.style.display = 'block';
+        banner.innerHTML = '';
+      } catch (err) {
+        console.error(err);
+        showBanner('error', err.message || "That didn't go through. Please try again.");
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Upload';
+      }
+    });
+
+    async function uploadFileInChunks(file) {
+      const uploadId = createUploadId();
+      const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+        const chunk = file.slice(chunkIndex * CHUNK_SIZE, Math.min((chunkIndex + 1) * CHUNK_SIZE, file.size));
+        const formData = new FormData();
+        formData.append('action', 'chunk');
+        formData.append('albumId', albumId);
+        formData.append('uploadId', uploadId);
+        formData.append('chunkIndex', String(chunkIndex));
+        formData.append('totalChunks', String(totalChunks));
+        formData.append('filename', file.name);
+        formData.append('contentType', file.type || 'application/octet-stream');
+        formData.append('media', chunk, file.name);
+        await fetchWithRetry(formData, chunkIndex, totalChunks);
+      }
+
+      const completeData = new FormData();
+      completeData.append('action', 'complete');
+      completeData.append('albumId', albumId);
+      completeData.append('uploadId', uploadId);
+      completeData.append('totalChunks', String(totalChunks));
+      completeData.append('filename', file.name);
+      completeData.append('contentType', file.type || 'application/octet-stream');
+
+      const res = await fetch('/.netlify/functions/upload', { method: 'POST', body: completeData });
+      const payload = await readJson(res);
+      if (!res.ok || !payload.ok) throw new Error(payload.error || `Could not finish uploading ${file.name}.`);
+    }
+
+    async function fetchWithRetry(formData, chunkIndex, totalChunks) {
+      let lastError;
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          const res = await fetch('/.netlify/functions/upload', { method: 'POST', body: formData });
+          const payload = await readJson(res);
+          if (!res.ok || !payload.ok) throw new Error(payload.error || `Upload failed on part ${chunkIndex + 1} of ${totalChunks}.`);
+          return;
+        } catch (err) {
+          lastError = err;
+          if (attempt < MAX_RETRIES) await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+        }
+      }
+      throw new Error(`Part ${chunkIndex + 1} of ${totalChunks} failed. ${lastError?.message || 'Please try again.'}`);
+    }
+
+    async function readJson(res) {
+      const text = await res.text();
+      try { return JSON.parse(text); }
+      catch { return { error: `Server returned ${res.status || 'an invalid response'}.` }; }
+    }
+
+    function createUploadId() {
+      if (crypto.randomUUID) return crypto.randomUUID();
+      return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+
+    document.getElementById('addMoreBtn').addEventListener('click', () => {
+      selectedFiles = [];
+      renderPreviews();
+      formView.style.display = 'block';
+      successView.style.display = 'none';
+      submitBtn.textContent = 'Upload';
+    });
+
+    function showBanner(kind, message) {
+      banner.innerHTML = `<div class="status-banner ${kind}">${message}</div>`;
+    }
+  </script>
+
+</body>
+</html>
