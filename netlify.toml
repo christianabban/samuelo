@@ -1,0 +1,18 @@
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+  command = "echo 'No build step needed — static files only'"
+
+[functions]
+  node_bundler = "esbuild"
+
+# Friendlier URLs: /upload instead of /upload.html, etc.
+[[redirects]]
+  from = "/upload"
+  to = "/upload.html"
+  status = 200
+
+[[redirects]]
+  from = "/gallery"
+  to = "/gallery.html"
+  status = 200
