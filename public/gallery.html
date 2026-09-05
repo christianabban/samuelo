@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>The Album</title>
+  <link rel="stylesheet" href="/css/main.css" />
+  <script src="/config.js"></script>
+</head>
+<body>
+
+  <nav class="nav">
+    <a class="mark" href="/">Kept</a>
+    <a class="navlink" href="/upload.html">Add photos</a>
+  </nav>
+
+  <div class="gallery-header">
+    <h1 id="title">The album</h1>
+    <p id="count">Loading…</p>
+  </div>
+
+  <div class="gallery-grid" id="grid"></div>
+  <div class="empty-state" id="emptyState" style="display:none;">
+    No photos yet — be the first to add one.
+  </div>
+
+  <div class="lightbox" id="lightbox">
+    <button class="close" id="closeLightbox">×</button>
+    <div id="lightboxContent"></div>
+  </div>
+
+  <script>
+    const cfg = window.KEPT_CONFIG;
+    document.documentElement.style.setProperty('--accent', cfg.accentColor);
+    document.getElementById('title').textContent = `${cfg.coupleNames}'s album`;
+
+    const params = new URLSearchParams(window.location.search);
+    const albumId = params.get('album') || cfg.albumId;
+
+    const grid = document.getElementById('grid');
+    const countEl = document.getElementById('count');
+    const emptyState = document.getElementById('emptyState');
+    const lightbox = document.getElementById('lightbox');
+    const lightboxContent = document.getElementById('lightboxContent');
+
+    async function loadGallery() {
+      try {
+        const res = await fetch(`/.netlify/functions/photos?album=${encodeURIComponent(albumId)}`);
+        const data = await res.json();
+        renderGallery(data.items || []);
+      } catch (err) {
+        countEl.textContent = "Couldn't load the album — try refreshing.";
+      }
+    }
+
+    function renderGallery(items) {
+      grid.innerHTML = '';
+      if (items.length === 0) {
+        emptyState.style.display = 'block';
+        countEl.textContent = '';
+        return;
+      }
+      emptyState.style.display = 'none';
+      countEl.textContent = `${items.length} memor${items.length === 1 ? 'y' : 'ies'} so far`;
+
+      items.forEach(item => {
+        const figure = document.createElement('figure');
+        const isVideo = /\.(mp4|mov|webm)$/i.test(item.url);
+        const el = document.createElement(isVideo ? 'video' : 'img');
+        el.src = item.url;
+        el.loading = 'lazy';
+        if (isVideo) { el.muted = true; el.playsInline = true; }
+        el.addEventListener('click', () => openLightbox(item.url, isVideo));
+        figure.appendChild(el);
+
+        if (item.guestName) {
+          const caption = document.createElement('figcaption');
+          caption.textContent = `From ${item.guestName}`;
+          figure.appendChild(caption);
+        }
+        grid.appendChild(figure);
+      });
+    }
+
+    function openLightbox(url, isVideo) {
+      lightboxContent.innerHTML = '';
+      const el = document.createElement(isVideo ? 'video' : 'img');
+      el.src = url;
+      if (isVideo) { el.controls = true; el.autoplay = true; }
+      lightboxContent.appendChild(el);
+      lightbox.classList.add('open');
+    }
+
+    document.getElementById('closeLightbox').addEventListener('click', () => {
+      lightbox.classList.remove('open');
+      lightboxContent.innerHTML = '';
+    });
+
+    loadGallery();
+    setInterval(loadGallery, 15000); // quiet auto-refresh so new uploads appear
+  </script>
+</body>
+</html>
