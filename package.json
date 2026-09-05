@@ -1,0 +1,19 @@
+{
+  "name": "kept",
+  "version": "1.0.0",
+  "description": "A minimal wedding photo-sharing page, deployed on Netlify. Guests scan a QR code and upload photos straight from their phone.",
+  "private": true,
+  "scripts": {
+    "dev": "netlify dev",
+    "qr": "node scripts/generate-qr.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0",
+    "busboy": "^1.6.0"
+  },
+  "devDependencies": {
+    "netlify-cli": "^17.0.0",
+    "qrcode": "^1.5.3"
+  }
+}
